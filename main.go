@@ -24,14 +24,14 @@ func main() {
 			var report types.Report
 			// Standard Plugin Principle: Read from Stdin
 			if err := json.NewDecoder(os.Stdin).Decode(&report); err != nil {
-				log.Logger.Fatal("Error: Plugin requires Trivy JSON input via stdin. Usage: trivy image -f json <target> | trivy excel-report run")
+				log.Fatal("Error: Plugin requires Trivy JSON input via stdin. Usage: trivy image -f json <target> | trivy excel-report run")
 			}
 
-			log.Logger.Infof("Generating Excel report at: %s", output)
+			log.Infof("Generating Excel report at: %s", output)
 			if err := excel.Export(&report, output, beautify); err != nil {
-				log.Logger.Fatalf("Failed to export Excel file: %v", err)
+				log.Fatal("Failed to export Excel file: %v", err)
 			}
-			log.Logger.Info("Report generated successfully!")
+			log.Infof("Report generated successfully!")
 		},
 	}
 

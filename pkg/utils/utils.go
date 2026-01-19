@@ -48,7 +48,7 @@ func FormatTime(t *time.Time) string {
 // ReadJSONFromFile reads and parses a Trivy JSON report from a local file
 func ReadJSONFromFile(filename string) (*types.Report, error) {
 	if filepath.Ext(filename) != ".json" {
-		log.Logger.Debugf("%s is not a JSON file", filename)
+		log.Debugf("%s is not a JSON file", filename)
 		return nil, nil
 	}
 

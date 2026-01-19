@@ -1,10 +1,11 @@
 package excel
+
 import (
 	"fmt"
 
-	dbTypes "github.com/aquasecurity/trivy-db/pkg/types"
+	// dbTypes "github.com/aquasecurity/trivy-db/pkg/types"
 	ftypes "github.com/aquasecurity/trivy/pkg/fanal/types"
-	"github.com/aquasecurity/trivy/pkg/log"
+	//"github.com/aquasecurity/trivy/pkg/log"
 	"github.com/aquasecurity/trivy/pkg/types"
 	"github.com/xuri/excelize/v2"
 	"golang.org/x/xerrors"
@@ -124,18 +125,23 @@ func setRowStyle(f *excelize.File, rowNum int, severity string, beautify bool) e
 }
 
 func parseVulnData(target string, rType ftypes.TargetType, rClass types.ResultClass, vuln types.DetectedVulnerability) []string {
+	classStr := string(rClass)
+	if v, ok := ResultClass[rClass]; ok {
+		classStr = v
+	}
+
 	return []string{
 		target,
 		string(rType),
-		utils.SetResultClass(rClass), // Uses utils for English labels
+		classStr,
 		vuln.VulnerabilityID,
 		vuln.Title,
 		string(vuln.SeveritySource),
-		utils.SeverityLabels[vuln.Severity], // Uses English Severity mapping
+		vuln.Severity,
 		vuln.PkgName,
 		vuln.InstalledVersion,
 		vuln.PkgPath,
 		vuln.FixedVersion,
-		utils.FormatTime(vuln.PublishedDate), // Uses formatted UTC time
+		vuln.Status.String(),
 	}
 }
