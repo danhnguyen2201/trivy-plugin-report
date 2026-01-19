@@ -1,0 +1,14 @@
+name: report
+repository: github.com/miao2sec/trivy-plugin-report
+version: "0.1.0"
+output: true
+summary: A trivy plugin that can convert scan results into excel
+usage: Template
+description: |-
+  A trivy plugin that can convert scan results into excel
+platforms:
+  - selector:
+      os: linux
+      arch: amd64
+    uri: https://github.com/miao2sec/trivy-plugin-report/releases/download/v0.1.0/trivy-plugin-report_0.1.0_linux-amd64.tar.gz
+    bin: ./report
