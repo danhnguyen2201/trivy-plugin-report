@@ -1,1 +1,1 @@
-# trivy_plugin_report
+# trivy-plugin-report
