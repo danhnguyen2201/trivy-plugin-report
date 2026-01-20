@@ -7,8 +7,6 @@ import (
 	"github.com/aquasecurity/trivy/pkg/log"
 	"github.com/aquasecurity/trivy/pkg/types"
 	"github.com/spf13/cobra"
-    
-    // Replace with your actual module path from go.mod
 	"trivy-plugin-excel/pkg/excel" 
 )
 
