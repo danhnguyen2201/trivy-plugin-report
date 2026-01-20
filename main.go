@@ -5,7 +5,7 @@ import (
 	"os"
 	"path/filepath"
 	"strings"
-	"sync" // Dùng để chạy song song (nhanh hơn)
+	"sync"
 
 	"github.com/aquasecurity/trivy/pkg/log"
 	"github.com/aquasecurity/trivy/pkg/types"
@@ -25,55 +25,51 @@ func main() {
 		Run: func(cmd *cobra.Command, args []string) {
 			var report types.Report
 			if err := json.NewDecoder(os.Stdin).Decode(&report); err != nil {
+				// Sửa lỗi: Dùng log.Fatal trực tiếp
 				log.Fatal("Error reading JSON input: %v", err)
 			}
 
-			// 1. Xử lý tên file
-			// Nếu người dùng nhập "ketqua.xlsx" hoặc "ketqua.pdf" -> ta cắt bỏ đuôi để lấy chữ "ketqua"
 			ext := filepath.Ext(output)
 			baseName := strings.TrimSuffix(output, ext)
-			
-			// Nếu người dùng không nhập gì, mặc định là "report"
 			if baseName == "" {
 				baseName = "report"
 			}
 
 			log.Infof("Generating reports with base name: %s", baseName)
 
-			// 2. Sử dụng WaitGroup để xuất 2 file cùng lúc (Goroutines)
 			var wg sync.WaitGroup
 			wg.Add(2)
 
-			// Luồng 1: Xuất Excel
+			// Luồng 1: Excel
 			go func() {
 				defer wg.Done()
 				fileName := baseName + ".xlsx"
 				if err := excel.Export(&report, fileName, beautify); err != nil {
-					log.Logger.Errorf("Failed to export Excel: %v", err)
+					// SỬA LỖI 1: Thay log.Logger.Errorf bằng log.Errorf
+					log.Errorf("Failed to export Excel: %v", err)
 				} else {
 					log.Infof("Created: %s", fileName)
 				}
 			}()
 
-			// Luồng 2: Xuất PDF
+			// Luồng 2: PDF
 			go func() {
 				defer wg.Done()
 				fileName := baseName + ".pdf"
-				// Lưu ý: Hàm pdf.Export của bạn cần khớp tham số (ở bài trước là Export(report, filename))
+				// Lưu ý: Nhớ sửa file pkg/pdf/export.go thêm dấu * vào func Export(report *types.Report...)
 				if err := pdf.Export(&report, fileName); err != nil {
-					log.Logger.Errorf("Failed to export PDF: %v", err)
+					// SỬA LỖI 1: Thay log.Logger.Errorf bằng log.Errorf
+					log.Errorf("Failed to export PDF: %v", err)
 				} else {
 					log.Infof("Created: %s", fileName)
 				}
 			}()
 
-			// Chờ cả 2 luồng chạy xong
 			wg.Wait()
 			log.Infof("All reports generated!")
 		},
 	}
 
-	// Sửa lại mô tả flag cho phù hợp
 	rootCmd.Flags().StringVarP(&output, "output", "o", "report", "Base filename (without extension)")
 	rootCmd.Flags().BoolVarP(&beautify, "beautify", "b", true, "Enable coloring (Excel only)")
 
