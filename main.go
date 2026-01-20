@@ -1,62 +1,83 @@
 package main
 
 import (
-    "encoding/json"
-    "fmt"
-    "os"
-    "strings"
+	"encoding/json"
+	"os"
+	"path/filepath"
+	"strings"
+	"sync" // Dùng để chạy song song (nhanh hơn)
 
-    "github.com/aquasecurity/trivy/pkg/log"
-    "github.com/aquasecurity/trivy/pkg/types"
-    "github.com/spf13/cobra"
-    
-    "trivy-plugin-excel/pkg/excel" 
-    "trivy-plugin-excel/pkg/pdf" // Đảm bảo bạn đã tạo package này
+	"github.com/aquasecurity/trivy/pkg/log"
+	"github.com/aquasecurity/trivy/pkg/types"
+	"github.com/spf13/cobra"
+
+	"trivy-plugin-excel/pkg/excel"
+	"trivy-plugin-excel/pkg/pdf"
 )
 
 func main() {
-    var outputBase string
-    var beautify bool
+	var output string
+	var beautify bool
 
-    var rootCmd = &cobra.Command{
-        Use:   "report",
-        Short: "Trivy plugin to export scan results to Excel and PDF",
-        Long:  "Reads Trivy JSON from stdin and generates both Excel and PDF reports.",
-        Run: func(cmd *cobra.Command, args []string) {
-            var report types.Report
-            
-            // Đọc dữ liệu từ Stdin
-            if err := json.NewDecoder(os.Stdin).Decode(&report); err != nil {
-                log.Fatal("Error: Plugin requires Trivy JSON input via stdin. Usage: trivy image -f json <target> | trivy report")
-            }
+	var rootCmd = &cobra.Command{
+		Use:   "report",
+		Short: "Export Trivy results to Excel and PDF",
+		Run: func(cmd *cobra.Command, args []string) {
+			var report types.Report
+			if err := json.NewDecoder(os.Stdin).Decode(&report); err != nil {
+				log.Fatal("Error reading JSON input: %v", err)
+			}
 
-            // Loại bỏ phần mở rộng nếu người dùng nhập (ví dụ: report.xlsx -> report)
-            outputBase = strings.TrimSuffix(outputBase, ".xlsx")
-            outputBase = strings.TrimSuffix(outputBase, ".pdf")
+			// 1. Xử lý tên file
+			// Nếu người dùng nhập "ketqua.xlsx" hoặc "ketqua.pdf" -> ta cắt bỏ đuôi để lấy chữ "ketqua"
+			ext := filepath.Ext(output)
+			baseName := strings.TrimSuffix(output, ext)
+			
+			// Nếu người dùng không nhập gì, mặc định là "report"
+			if baseName == "" {
+				baseName = "report"
+			}
 
-            // 1. Xuất file Excel
-            excelPath := outputBase + ".xlsx"
-            log.Infof("Generating Excel report: %s", excelPath)
-            if err := excel.Export(&report, excelPath, beautify); err != nil {
-                log.Errorf("Failed to export Excel: %v", err)
-            }
+			log.Infof("Generating reports with base name: %s", baseName)
 
-            // 2. Xuất file PDF
-            pdfPath := outputBase + ".pdf"
-            log.Infof("Generating PDF report: %s", pdfPath)
-            if err := pdf.Export(report, pdfPath); err != nil {
-                log.Errorf("Failed to export PDF: %v", err)
-            }
+			// 2. Sử dụng WaitGroup để xuất 2 file cùng lúc (Goroutines)
+			var wg sync.WaitGroup
+			wg.Add(2)
 
-            fmt.Println("✨ All reports generated successfully!")
-        },
-    }
+			// Luồng 1: Xuất Excel
+			go func() {
+				defer wg.Done()
+				fileName := baseName + ".xlsx"
+				if err := excel.Export(&report, fileName, beautify); err != nil {
+					log.Logger.Errorf("Failed to export Excel: %v", err)
+				} else {
+					log.Infof("Created: %s", fileName)
+				}
+			}()
 
-    // Đổi mặc định thành tên base để không gây nhầm lẫn
-    rootCmd.Flags().StringVarP(&outputBase, "output", "o", "trivy-report", "Base path for output files (extensions .xlsx and .pdf will be added)")
-    rootCmd.Flags().BoolVarP(&beautify, "beautify", "b", true, "Enable severity background coloring (Excel only)")
+			// Luồng 2: Xuất PDF
+			go func() {
+				defer wg.Done()
+				fileName := baseName + ".pdf"
+				// Lưu ý: Hàm pdf.Export của bạn cần khớp tham số (ở bài trước là Export(report, filename))
+				if err := pdf.Export(&report, fileName); err != nil {
+					log.Logger.Errorf("Failed to export PDF: %v", err)
+				} else {
+					log.Infof("Created: %s", fileName)
+				}
+			}()
 
-    if err := rootCmd.Execute(); err != nil {
-        os.Exit(1)
-    }
+			// Chờ cả 2 luồng chạy xong
+			wg.Wait()
+			log.Infof("All reports generated!")
+		},
+	}
+
+	// Sửa lại mô tả flag cho phù hợp
+	rootCmd.Flags().StringVarP(&output, "output", "o", "report", "Base filename (without extension)")
+	rootCmd.Flags().BoolVarP(&beautify, "beautify", "b", true, "Enable coloring (Excel only)")
+
+	if err := rootCmd.Execute(); err != nil {
+		os.Exit(1)
+	}
 }
