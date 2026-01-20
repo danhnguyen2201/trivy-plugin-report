@@ -1,41 +1,62 @@
 package main
 
 import (
-	"encoding/json"
-	"os"
-	"github.com/aquasecurity/trivy/pkg/log"
-	"github.com/aquasecurity/trivy/pkg/types"
-	"github.com/spf13/cobra"
-	"trivy-plugin-excel/pkg/excel" 
+    "encoding/json"
+    "fmt"
+    "os"
+    "strings"
+
+    "github.com/aquasecurity/trivy/pkg/log"
+    "github.com/aquasecurity/trivy/pkg/types"
+    "github.com/spf13/cobra"
+    
+    "trivy-plugin-excel/pkg/excel" 
+    "trivy-plugin-excel/pkg/pdf" // Đảm bảo bạn đã tạo package này
 )
 
 func main() {
-	var output string
-	var beautify bool
+    var outputBase string
+    var beautify bool
 
-	var rootCmd = &cobra.Command{
-		Use:   "excel-report",
-		Short: "Trivy plugin to export scan results to Excel",
-		Long:  "A plugin that reads Trivy JSON output from stdin and generates a formatted Excel report.",
-		Run: func(cmd *cobra.Command, args []string) {
-			var report types.Report
-			// Standard Plugin Principle: Read from Stdin
-			if err := json.NewDecoder(os.Stdin).Decode(&report); err != nil {
-				log.Fatal("Error: Plugin requires Trivy JSON input via stdin. Usage: trivy image -f json <target> | trivy excel-report run")
-			}
+    var rootCmd = &cobra.Command{
+        Use:   "report",
+        Short: "Trivy plugin to export scan results to Excel and PDF",
+        Long:  "Reads Trivy JSON from stdin and generates both Excel and PDF reports.",
+        Run: func(cmd *cobra.Command, args []string) {
+            var report types.Report
+            
+            // Đọc dữ liệu từ Stdin
+            if err := json.NewDecoder(os.Stdin).Decode(&report); err != nil {
+                log.Fatal("Error: Plugin requires Trivy JSON input via stdin. Usage: trivy image -f json <target> | trivy report")
+            }
 
-			log.Infof("Generating Excel report at: %s", output)
-			if err := excel.Export(&report, output, beautify); err != nil {
-				log.Fatal("Failed to export Excel file: %v", err)
-			}
-			log.Infof("Report generated successfully!")
-		},
-	}
+            // Loại bỏ phần mở rộng nếu người dùng nhập (ví dụ: report.xlsx -> report)
+            outputBase = strings.TrimSuffix(outputBase, ".xlsx")
+            outputBase = strings.TrimSuffix(outputBase, ".pdf")
 
-	rootCmd.Flags().StringVarP(&output, "output", "o", "trivy-report.xlsx", "Path to output file")
-	rootCmd.Flags().BoolVarP(&beautify, "beautify", "b", true, "Enable severity background coloring")
+            // 1. Xuất file Excel
+            excelPath := outputBase + ".xlsx"
+            log.Infof("Generating Excel report: %s", excelPath)
+            if err := excel.Export(&report, excelPath, beautify); err != nil {
+                log.Errorf("Failed to export Excel: %v", err)
+            }
 
-	if err := rootCmd.Execute(); err != nil {
-		os.Exit(1)
-	}
+            // 2. Xuất file PDF
+            pdfPath := outputBase + ".pdf"
+            log.Infof("Generating PDF report: %s", pdfPath)
+            if err := pdf.Export(report, pdfPath); err != nil {
+                log.Errorf("Failed to export PDF: %v", err)
+            }
+
+            fmt.Println("✨ All reports generated successfully!")
+        },
+    }
+
+    // Đổi mặc định thành tên base để không gây nhầm lẫn
+    rootCmd.Flags().StringVarP(&outputBase, "output", "o", "trivy-report", "Base path for output files (extensions .xlsx and .pdf will be added)")
+    rootCmd.Flags().BoolVarP(&beautify, "beautify", "b", true, "Enable severity background coloring (Excel only)")
+
+    if err := rootCmd.Execute(); err != nil {
+        os.Exit(1)
+    }
 }

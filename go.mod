@@ -4,6 +4,7 @@ go 1.25.5
 
 require (
 	github.com/aquasecurity/trivy v0.57.0
+	github.com/jung-kurt/gofpdf v1.16.2
 	github.com/spf13/cobra v1.10.2
 	github.com/xuri/excelize/v2 v2.10.0
 	golang.org/x/xerrors v0.0.0-20240903120638-7835f813f4da
