@@ -23,9 +23,9 @@ import (
 )
 
 // --- 1. PRE-DEFINED COLORS ---
+// (Giữ nguyên phần khai báo màu sắc như cũ)
 
 var (
-	// Text Colors
 	ColorHeaderOpen = &props.Color{Red: 20, Green: 20, Blue: 20}
 	ColorHeaderText = &props.Color{Red: 40, Green: 40, Blue: 40}
 	ColorBodyText   = &props.Color{Red: 50, Green: 50, Blue: 50}
@@ -33,14 +33,12 @@ var (
 	ColorLightGray  = &props.Color{Red: 150, Green: 150, Blue: 150}
 	ColorGrayText   = &props.Color{Red: 100, Green: 100, Blue: 100}
 
-	// Severity Text Colors
 	ColorSevCritical = &props.Color{Red: 220, Green: 50, Blue: 50}
 	ColorSevHigh     = &props.Color{Red: 220, Green: 100, Blue: 0}
 	ColorSevMedium   = &props.Color{Red: 220, Green: 160, Blue: 0}
 	ColorSevLow      = &props.Color{Red: 180, Green: 180, Blue: 0}
 	ColorSevDefault  = &props.Color{Red: 80, Green: 80, Blue: 80}
 
-	// Background Colors
 	ColorBgHeader   = &props.Color{Red: 240, Green: 240, Blue: 240}
 	ColorBgCritical = &props.Color{Red: 255, Green: 235, Blue: 235}
 	ColorBgHigh     = &props.Color{Red: 255, Green: 245, Blue: 235}
@@ -105,7 +103,6 @@ type SeverityCount struct {
 	Total    int
 }
 
-// countVulnerabilities aggregates vulnerability counts by severity.
 func countVulnerabilities(report *types.Report) SeverityCount {
 	var counts SeverityCount
 	for _, res := range report.Results {
@@ -128,36 +125,39 @@ func countVulnerabilities(report *types.Report) SeverityCount {
 	return counts
 }
 
-// calculateRowHeight calculates the row height dynamically (Auto Fit).
-// It adjusts the height based on the length of "Pkg Name" and "Title" to ensure text fits on an A4 Landscape page.
-func calculateRowHeight(pkgNameLen, titleLen int) float64 {
-	// Estimation factors for characters per line:
-	// - PkgName Column (Width 2/12 ~ 46mm): Fits approx. 18 characters.
-	// - Title Column (Width 4/12 ~ 92mm): Fits approx. 45 characters.
-	// If text length exceeds these limits, it wraps to the next line.
+// calculateRowHeight calculates dynamic row height.
+// UPDATED: Now considers 'Fixed Version' length as well, since we increased its column width.
+func calculateRowHeight(pkgNameLen, fixedVerLen, titleLen int) float64 {
+	// Estimations for chars per line based on new column widths:
+	// - PkgName (Width 2): ~20 chars
+	// - Fixed (Width 2): ~20 chars (Critical for long Debian versions)
+	// - Title (Width 3): ~32 chars
 	
-	pkgLines := (pkgNameLen + 17) / 18
-	titleLines := (titleLen + 44) / 45
+	pkgLines := (pkgNameLen + 18) / 20
+	fixedLines := (fixedVerLen + 18) / 20
+	titleLines := (titleLen + 30) / 32
 
 	maxLines := pkgLines
+	if fixedLines > maxLines {
+		maxLines = fixedLines
+	}
 	if titleLines > maxLines {
 		maxLines = titleLines
 	}
+	
 	if maxLines < 1 {
 		maxLines = 1
 	}
 	
-	// Formula: Base Height (6) + (Lines * 4)
-	// Added padding prevents text overlap.
+	// Base height 6 + 4 per extra line
 	return 6.0 + (float64(maxLines) * 4.0)
 }
 
 // --- 3. MAIN EXPORT ---
 
-// Export generates a PDF report from the Trivy scan results.
 func Export(report *types.Report, path string) error {
 	cfg := config.NewBuilder().
-		WithOrientation(orientation.Horizontal). // Landscape mode
+		WithOrientation(orientation.Horizontal).
 		WithPageSize(pagesize.A4).
 		WithLeftMargin(10).
 		WithTopMargin(10).
@@ -182,12 +182,9 @@ func Export(report *types.Report, path string) error {
 	counts := countVulnerabilities(report)
 	currentTime := time.Now().Format("2006-01-02 15:04")
 
-	// Spacer before Summary
 	m.AddRows(row.New(5))
 
-	// --- SUMMARY SECTION (BOXED) ---
-	
-	// 1. Summary Header (Gray background box)
+	// --- SUMMARY SECTION ---
 	summaryHeader := row.New(8)
 	summaryHeader.WithStyle(&props.Cell{
 		BackgroundColor: ColorBgHeader,
@@ -206,14 +203,12 @@ func Export(report *types.Report, path string) error {
 	)
 	m.AddRows(summaryHeader)
 
-	// 2. Stats Row (White background box)
 	statsRow := row.New(16)
 	statsRow.WithStyle(&props.Cell{
 		BorderType:  border.Full,
 		BorderColor: ColorLightGray,
 	})
 
-	// Col 1: Date & Status
 	statsRow.Add(
 		text.NewCol(2, fmt.Sprintf("Date: %s \nStatus: Completed", currentTime), props.Text{
 			Top:    3,
@@ -224,7 +219,6 @@ func Export(report *types.Report, path string) error {
 		}),
 	)
 
-	// Helper function for Stat Cols
 	addStatCol := func(label string, count int, c *props.Color) core.Col {
 		return text.NewCol(2, fmt.Sprintf("%d %s", count, label), props.Text{
 			Top: 5, Size: 10, Style: fontstyle.Bold, Align: align.Center, Family: fontfamily.Arial, Color: c,
@@ -241,17 +235,17 @@ func Export(report *types.Report, path string) error {
 	if counts.Unknown > 0 {
 		statsRow.Add(addStatCol("Unknown", counts.Unknown, ColorGrayText))
 	} else {
-		// Empty spacer if no unknown vulnerabilities
 		statsRow.Add(text.NewCol(2, "", props.Text{}))
 	}
 
 	m.AddRows(statsRow)
-	m.AddRows(row.New(10)) // Spacer after Summary
+	m.AddRows(row.New(10))
 
 	// --- Table Configuration ---
-	// Column configuration: ID(2), Sev(1), Pkg(2), Inst(2), Fixed(1), Title(4) -> Total Width: 12
+	// FIXED LAYOUT: ID(2), Sev(1), Pkg(2), Inst(2), Fixed(2), Title(3) -> Total 12
+	// Increased 'Fixed' from 1 to 2 to prevent text overlap.
 	headers := []string{"ID", "Severity", "Pkg Name", "Installed", "Fixed", "Title"}
-	colWidths := []int{2, 1, 2, 2, 1, 4}
+	colWidths := []int{2, 1, 2, 2, 2, 3}
 
 	headerProp := props.Text{
 		Top:    1.5,
@@ -261,7 +255,6 @@ func Export(report *types.Report, path string) error {
 		Family: fontfamily.Arial,
 		Size:   9,
 	}
-	// Font size 8 for table body content
 	bodyProp := props.Text{
 		Top:    1.5,
 		Size:   8,
@@ -270,9 +263,7 @@ func Export(report *types.Report, path string) error {
 		Align:  align.Left,
 	}
 
-	// --- FIX PAGE NUMBER ISSUE ---
-	// Maroto V2 does not support "$current / $total" placeholders in standard text components.
-	// Instead, we use a static footer with a timestamp.
+	// Footer
 	m.RegisterFooter(
 		row.New(5).Add(
 			text.NewCol(12, "Generated by Trivy Plugin | "+currentTime, props.Text{
@@ -286,7 +277,6 @@ func Export(report *types.Report, path string) error {
 
 	// --- Result Iteration ---
 	for _, result := range report.Results {
-		// Sorting logic: Severity (Critical -> Low) then Package Name
 		sort.Slice(result.Vulnerabilities, func(i, j int) bool {
 			v1 := result.Vulnerabilities[i]
 			v2 := result.Vulnerabilities[j]
@@ -300,7 +290,6 @@ func Export(report *types.Report, path string) error {
 
 		fullTargetInfo := fmt.Sprintf("Target: %s (%s)", result.Target, result.Class)
 		
-		// Target Name Row
 		m.AddRows(
 			row.New(15).Add(
 				text.NewCol(12, fullTargetInfo, props.Text{
@@ -314,7 +303,6 @@ func Export(report *types.Report, path string) error {
 			),
 		)
 
-		// Table Header Row
 		headerRow := row.New(8)
 		headerRow.WithStyle(&props.Cell{BackgroundColor: ColorBgHeader})
 		for i, h := range headers {
@@ -335,9 +323,13 @@ func Export(report *types.Report, path string) error {
 		} else {
 			for _, vuln := range result.Vulnerabilities {
 				displayTitle := strings.ReplaceAll(vuln.Title, "\n", " ")
-				
-				// Calculate dynamic row height based on content length
-				rowHeight := calculateRowHeight(len(vuln.PkgName), len(displayTitle))
+				fixedVer := vuln.FixedVersion
+				if fixedVer == "" {
+					fixedVer = "-"
+				}
+
+				// Calculate dynamic row height, including Fixed Version length
+				rowHeight := calculateRowHeight(len(vuln.PkgName), len(fixedVer), len(displayTitle))
 
 				r := row.New(rowHeight)
 				
@@ -349,27 +341,21 @@ func Export(report *types.Report, path string) error {
 				sevProp.Color = getSeverityColor(vuln.Severity)
 				sevProp.Align = align.Center
 
-				fixedVer := vuln.FixedVersion
-				if fixedVer == "" {
-					fixedVer = "-"
-				}
-
 				r.Add(
 					text.NewCol(colWidths[0], vuln.VulnerabilityID, bodyProp),
 					text.NewCol(colWidths[1], vuln.Severity, sevProp),
 					text.NewCol(colWidths[2], vuln.PkgName, bodyProp),
 					text.NewCol(colWidths[3], vuln.InstalledVersion, bodyProp),
-					text.NewCol(colWidths[4], fixedVer, bodyProp),
-					text.NewCol(colWidths[5], displayTitle, bodyProp),
+					text.NewCol(colWidths[4], fixedVer, bodyProp), // Width 2 now
+					text.NewCol(colWidths[5], displayTitle, bodyProp), // Width 3 now
 				)
 				m.AddRows(r)
 			}
 		}
 		
-		// Separator Line
 		m.AddRows(
 			line.NewRow(1.0, props.Line{Color: &props.Color{Red: 200, Green: 200, Blue: 200}}),
-			row.New(8), // Bottom spacer
+			row.New(8),
 		)
 	}
 
