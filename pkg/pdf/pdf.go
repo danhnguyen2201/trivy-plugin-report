@@ -13,7 +13,7 @@ import (
 	"github.com/johnfercher/maroto/v2/pkg/components/text"
 	"github.com/johnfercher/maroto/v2/pkg/config"
 	"github.com/johnfercher/maroto/v2/pkg/consts/align"
-	"github.com/johnfercher/maroto/v2/pkg/consts/border" // Thêm import này
+	"github.com/johnfercher/maroto/v2/pkg/consts/border"
 	"github.com/johnfercher/maroto/v2/pkg/consts/fontfamily"
 	"github.com/johnfercher/maroto/v2/pkg/consts/fontstyle"
 	"github.com/johnfercher/maroto/v2/pkg/consts/orientation"
@@ -105,6 +105,7 @@ type SeverityCount struct {
 	Total    int
 }
 
+// countVulnerabilities aggregates vulnerability counts by severity.
 func countVulnerabilities(report *types.Report) SeverityCount {
 	var counts SeverityCount
 	for _, res := range report.Results {
@@ -127,9 +128,17 @@ func countVulnerabilities(report *types.Report) SeverityCount {
 	return counts
 }
 
+// calculateRowHeight calculates the row height dynamically (Auto Fit).
+// It adjusts the height based on the length of "Pkg Name" and "Title" to ensure text fits on an A4 Landscape page.
 func calculateRowHeight(pkgNameLen, titleLen int) float64 {
-	pkgLines := (pkgNameLen + 20) / 22
-	titleLines := (titleLen + 55) / 60
+	// Estimation factors for characters per line:
+	// - PkgName Column (Width 2/12 ~ 46mm): Fits approx. 18 characters.
+	// - Title Column (Width 4/12 ~ 92mm): Fits approx. 45 characters.
+	// If text length exceeds these limits, it wraps to the next line.
+	
+	pkgLines := (pkgNameLen + 17) / 18
+	titleLines := (titleLen + 44) / 45
+
 	maxLines := pkgLines
 	if titleLines > maxLines {
 		maxLines = titleLines
@@ -137,14 +146,18 @@ func calculateRowHeight(pkgNameLen, titleLen int) float64 {
 	if maxLines < 1 {
 		maxLines = 1
 	}
-	return 6.0 + (float64(maxLines) * 3.5)
+	
+	// Formula: Base Height (6) + (Lines * 4)
+	// Added padding prevents text overlap.
+	return 6.0 + (float64(maxLines) * 4.0)
 }
 
 // --- 3. MAIN EXPORT ---
 
+// Export generates a PDF report from the Trivy scan results.
 func Export(report *types.Report, path string) error {
 	cfg := config.NewBuilder().
-		WithOrientation(orientation.Horizontal).
+		WithOrientation(orientation.Horizontal). // Landscape mode
 		WithPageSize(pagesize.A4).
 		WithLeftMargin(10).
 		WithTopMargin(10).
@@ -153,7 +166,7 @@ func Export(report *types.Report, path string) error {
 
 	m := maroto.New(cfg)
 
-	// Header
+	// --- Header ---
 	m.RegisterHeader(
 		text.NewRow(15, "Trivy Security Report", props.Text{
 			Top:    2,
@@ -165,20 +178,21 @@ func Export(report *types.Report, path string) error {
 		}),
 	)
 
+	// --- Dashboard Data ---
 	counts := countVulnerabilities(report)
 	currentTime := time.Now().Format("2006-01-02 15:04")
 
-	// Spacer trước Summary
+	// Spacer before Summary
 	m.AddRows(row.New(5))
 
 	// --- SUMMARY SECTION (BOXED) ---
-
-	// 1. Summary Header (Box có nền xám)
+	
+	// 1. Summary Header (Gray background box)
 	summaryHeader := row.New(8)
 	summaryHeader.WithStyle(&props.Cell{
 		BackgroundColor: ColorBgHeader,
-		BorderType:      border.Full,    // Đóng khung vuông
-		BorderColor:     ColorLightGray, // Màu viền xám nhẹ
+		BorderType:      border.Full,
+		BorderColor:     ColorLightGray,
 	})
 	summaryHeader.Add(
 		text.NewCol(12, "SCAN SUMMARY", props.Text{
@@ -192,11 +206,11 @@ func Export(report *types.Report, path string) error {
 	)
 	m.AddRows(summaryHeader)
 
-	// 2. Stats Row (Box có nền trắng)
+	// 2. Stats Row (White background box)
 	statsRow := row.New(16)
 	statsRow.WithStyle(&props.Cell{
-		BorderType:  border.Full,    // Đóng khung vuông
-		BorderColor: ColorLightGray, // Màu viền xám nhẹ
+		BorderType:  border.Full,
+		BorderColor: ColorLightGray,
 	})
 
 	// Col 1: Date & Status
@@ -210,14 +224,13 @@ func Export(report *types.Report, path string) error {
 		}),
 	)
 
-	// Helper function
+	// Helper function for Stat Cols
 	addStatCol := func(label string, count int, c *props.Color) core.Col {
 		return text.NewCol(2, fmt.Sprintf("%d %s", count, label), props.Text{
 			Top: 5, Size: 10, Style: fontstyle.Bold, Align: align.Center, Family: fontfamily.Arial, Color: c,
 		})
 	}
 
-	// Col 2-6: Stats
 	statsRow.Add(
 		addStatCol("Critical", counts.Critical, ColorSevCritical),
 		addStatCol("High", counts.High, ColorSevHigh),
@@ -225,19 +238,18 @@ func Export(report *types.Report, path string) error {
 		addStatCol("Low", counts.Low, ColorSevLow),
 	)
 
-	// Other/Unknown
 	if counts.Unknown > 0 {
 		statsRow.Add(addStatCol("Unknown", counts.Unknown, ColorGrayText))
 	} else {
+		// Empty spacer if no unknown vulnerabilities
 		statsRow.Add(text.NewCol(2, "", props.Text{}))
 	}
 
 	m.AddRows(statsRow)
+	m.AddRows(row.New(10)) // Spacer after Summary
 
-	// Spacer sau Summary
-	m.AddRows(row.New(10))
-
-	// --- Table Setup ---
+	// --- Table Configuration ---
+	// Column configuration: ID(2), Sev(1), Pkg(2), Inst(2), Fixed(1), Title(4) -> Total Width: 12
 	headers := []string{"ID", "Severity", "Pkg Name", "Installed", "Fixed", "Title"}
 	colWidths := []int{2, 1, 2, 2, 1, 4}
 
@@ -249,6 +261,7 @@ func Export(report *types.Report, path string) error {
 		Family: fontfamily.Arial,
 		Size:   9,
 	}
+	// Font size 8 for table body content
 	bodyProp := props.Text{
 		Top:    1.5,
 		Size:   8,
@@ -257,17 +270,23 @@ func Export(report *types.Report, path string) error {
 		Align:  align.Left,
 	}
 
+	// --- FIX PAGE NUMBER ISSUE ---
+	// Maroto V2 does not support "$current / $total" placeholders in standard text components.
+	// Instead, we use a static footer with a timestamp.
 	m.RegisterFooter(
 		row.New(5).Add(
-			text.NewCol(12, "Page $current / $total", props.Text{
+			text.NewCol(12, "Generated by Trivy Plugin | "+currentTime, props.Text{
 				Align: align.Right,
-				Size:  8,
+				Size:  7,
 				Color: ColorLightGray,
+				Style: fontstyle.Italic,
 			}),
 		),
 	)
 
+	// --- Result Iteration ---
 	for _, result := range report.Results {
+		// Sorting logic: Severity (Critical -> Low) then Package Name
 		sort.Slice(result.Vulnerabilities, func(i, j int) bool {
 			v1 := result.Vulnerabilities[i]
 			v2 := result.Vulnerabilities[j]
@@ -279,26 +298,23 @@ func Export(report *types.Report, path string) error {
 			return v1.PkgName < v2.PkgName
 		})
 
-		// targetName := result.Target
-		// if len(targetName) > 90 {
-		// 	targetName = targetName[:87] + "..."
-		// }
 		fullTargetInfo := fmt.Sprintf("Target: %s (%s)", result.Target, result.Class)
 		
+		// Target Name Row
 		m.AddRows(
-		  row.New(15).Add(
-		  text.NewCol(12, fullTargetInfo, props.Text{
-		  Top:    2,
-		  Style:  fontstyle.Bold,
-		  Size:   10,
-		  Family: fontfamily.Arial,
-		  Color:  ColorDarkGray,
-		  Align:  align.Left, // Căn trái
+			row.New(15).Add(
+				text.NewCol(12, fullTargetInfo, props.Text{
+					Top:    2,
+					Style:  fontstyle.Bold,
+					Size:   10,
+					Family: fontfamily.Arial,
+					Color:  ColorDarkGray,
+					Align:  align.Left,
 				}),
 			),
 		)
 
-		// Table Header
+		// Table Header Row
 		headerRow := row.New(8)
 		headerRow.WithStyle(&props.Cell{BackgroundColor: ColorBgHeader})
 		for i, h := range headers {
@@ -319,6 +335,8 @@ func Export(report *types.Report, path string) error {
 		} else {
 			for _, vuln := range result.Vulnerabilities {
 				displayTitle := strings.ReplaceAll(vuln.Title, "\n", " ")
+				
+				// Calculate dynamic row height based on content length
 				rowHeight := calculateRowHeight(len(vuln.PkgName), len(displayTitle))
 
 				r := row.New(rowHeight)
@@ -348,9 +366,10 @@ func Export(report *types.Report, path string) error {
 			}
 		}
 		
+		// Separator Line
 		m.AddRows(
 			line.NewRow(1.0, props.Line{Color: &props.Color{Red: 200, Green: 200, Blue: 200}}),
-			row.New(8),
+			row.New(8), // Bottom spacer
 		)
 	}
 
